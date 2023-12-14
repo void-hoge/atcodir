@@ -5,44 +5,127 @@ import os
 import sys
 import re
 
+TEST_NUM = 3
+SOURCE = 'main'
+SUFFIXES = ['cpp']
+
 class Atcodir:
-    def __init__(self, contest):
+    def __init__(self, contest, suffixes):
         self.contest = contest.lower()
         self.url = f'https://atcoder.jp/contests/{self.contest}'
+        self.tasks = self.get_tasks(self.get_html(f'{self.url}/tasks'))
+        self.dirnames = {}
+        for prefix, name in self.tasks:
+            self.dirnames[prefix] = f'{self.contest}/{self.convert_title(prefix, name)}'
+        self.samples = self.get_samples()
+        self.suffixes = suffixes
 
-    def get_tasks_html(self):
-        result = subprocess.run(f'wget -O /dev/stdout {self.url}/tasks', shell=True, encoding='utf-8', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return None if result.returncode != 0 else result.stdout
+    def build(self):
+        self.create_directories()
+        self.create_samples()
+        for suffix in self.suffixes:
+            self.create_sources(suffix)
 
-    def format_title(self, prefix, src):
+    def get_html(self, url):
+        result = subprocess.run(
+            f'wget -O /dev/stdout \'{url}\'',
+            shell=True, encoding='utf-8',
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE)
+        if result.returncode != 0:
+            raise RuntimeError(f'No such page: {url}')
+        return result.stdout
+
+    def convert_title(self, prefix, src):
         src = src.lower()
         result = f'{prefix.upper()}-'
         for ch in src:
-            if ch in 'abcdefghijklmnopqrstuvwxyz.':
+            if ch in 'abcdefghijklmnopqrstuvwxyz.0123456789':
                 result += ch
             else:
                 result += '-'
         return result
 
     def get_tasks(self, html):
+        print(f'Parsing tasks...')
         lines = html.split('\n')
         pattern = f'<td><a href="/contests/{self.contest}/tasks/{self.contest}_([a-z])">(.+)</a>'
         tasks = []
         for line in lines:
             match = re.search(pattern, line)
             if match:
-                tasks.append(self.format_title(match.group(1), match.group(2)))
+                tasks.append((match.group(1), match.group(2)))
+        for prefix, name in tasks:
+            print(f'{prefix.upper()}: {name}')
         return tasks
 
     def create_directories(self):
-        html = self.get_tasks_html()
-        if html:
-            tasks = self.get_tasks(html)
-            for task in tasks:
-                os.makedirs(f'{self.contest}/{task}')
-                subprocess.run(f'touch {self.contest}/{task}/main.cpp', shell=True)
-                subprocess.run(f'touch {self.contest}/{task}/main.py', shell=True)
+        print(f'Creating directories...')
+        for prefix, name in self.tasks:
+            os.makedirs(self.dirnames[prefix])
+
+    def create_samples(self):
+        print(f'Writing sample inputs and outputs...')
+        for prefix, samples in self.samples.items():
+            dirname = self.dirnames[prefix]
+            for idx, (test, exp) in enumerate(samples):
+                with open(f'{dirname}/test{idx+1}', 'w') as f:
+                    print(test, file=f)
+                with open(f'{dirname}/exp{idx+1}', 'w') as f:
+                    print(exp, file=f)
+
+    def create_sources(self, suffix):
+        print(f'Initializing sources...')
+        for prefix, dirname in self.dirnames.items():
+            subprocess.run(f'touch {dirname}/{SOURCE}.{suffix}', shell=True)
+
+    def get_samples(self):
+        samples = {}
+        for prefix, dirname in self.dirnames.items():
+            print(f'Parsing {dirname}...')
+            html = self.get_html(f'{self.url}/tasks/{self.contest}_{prefix.lower()}')
+            samples[prefix] = self.parse_samples(html)
+        return samples
+
+    def parse_samples(self, html):
+        lines = html.split('\n')
+        input_start = f'Sample Input ([0-9]+)</h[0-9]><pre>(.+)'
+        input_end = f'(.*)</pre>'
+        output_start = f'Sample Output ([0-9]+)</h[0-9]+><pre>(.+)'
+        output_end = f'(.*)</pre>'
+        state = 'init'
+        inputs = []
+        outputs = []
+        for line in lines:
+            if state == 'init':
+                match = re.search(input_start, line)
+                if match:
+                    inputs.append(match.group(2))
+                    state = 'input'
+                else:
+                    match = re.search(output_start, line)
+                    if match:
+                        outputs.append(match.group(2))
+                        state = 'output'
+            elif state == 'input':
+                match = re.search(input_end, line)
+                if not match:
+                    inputs[-1] += f'\n{line}'
+                else:
+                    inputs[-1] += f'\n{match.group(1)}'
+                    state = 'init'
+            elif state == 'output':
+                match = re.search(output_end, line)
+                if not match:
+                    outputs[-1] += f'\n{line}'
+                else:
+                    outputs[-1] += f'\n{match.group(1)}'
+                    state = 'init'
+        result = []
+        for i, o in zip(inputs, outputs):
+            result.append((i, o))
+        return result
 
 if __name__ == '__main__':
-    acd = Atcodir(sys.argv[1])
-    acd.create_directories()
+    acd = Atcodir(sys.argv[1], SUFFIXES)
+    acd.build()
