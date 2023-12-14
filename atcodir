@@ -89,9 +89,9 @@ class Atcodir:
 
     def parse_samples(self, html):
         lines = html.split('\n')
-        input_start = f'Sample Input ([0-9]+)</h[0-9]><pre>(.+)'
+        input_start = f'Sample Input ([0-9]+)</h[0-9]><pre.+>(.+)'
         input_end = f'(.*)</pre>'
-        output_start = f'Sample Output ([0-9]+)</h[0-9]+><pre>(.+)'
+        output_start = f'Sample Output ([0-9]+)</h[0-9]+><pre.+>(.+)'
         output_end = f'(.*)</pre>'
         state = 'init'
         inputs = []
